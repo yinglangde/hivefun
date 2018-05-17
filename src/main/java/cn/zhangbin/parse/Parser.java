@@ -10,6 +10,7 @@ import cn.zhangbin.util.Check;
 import cn.zhangbin.util.NumberUtil;
 import cn.zhangbin.util.ParseUtil;
 import org.antlr.runtime.tree.Tree;
+import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.parse.ASTNode;
 import org.apache.hadoop.hive.ql.parse.BaseSemanticAnalyzer;
 import org.apache.hadoop.hive.ql.parse.HiveParser;
@@ -162,7 +163,12 @@ public class Parser {
                         }
                     }
                     break;
+                case HiveParser.TOK_LATERAL_VIEW:
+                    System.out.println("== TOK_LATERAL_VIEW ==");
+
+                    break;
                 case HiveParser.TOK_SUBQUERY:
+                    System.out.println("== TOK_SUBQUERY ==");
                     if (ast.getChildCount() == 2) {
                         String tableAlias = BaseSemanticAnalyzer.unescapeIdentifier(ast.getChild(1).getText());
                         String aliaReal = "";
@@ -193,7 +199,9 @@ public class Parser {
                                 queryMap.put(_qt.getCurrent(), _qt);
                             }
                         }
+                        System.out.println(qt.toString());
                     }
+
                     break;
                 case HiveParser.TOK_SELEXPR: //输入输出字段的处理
                     /**
@@ -286,6 +294,21 @@ public class Parser {
             }
         }
     }
+
+
+//    private String getLateralViewFromTab(ASTNode ast){
+//        String name = "";
+//        if(ast.getToken()!=null ){
+//            for (int i=0;i<ast.getChildCount();i++) {
+//                ASTNode t = (ASTNode) ast.getChild(i);
+//                if(t.getType()==HiveParser.TOK_TABREF){
+//                    return BaseSemanticAnalyzer.unescapeIdentifier(t.getChild(1).getText());
+//                }
+//            }
+//        }else {
+//            return getLateralViewFromTab(ast.);
+//        }
+//    }
 
     /**
      * 查找当前节点的父子查询节点
@@ -414,6 +437,9 @@ public class Parser {
                         + " between " + getBlockIteral((ASTNode) ast.getChild(3)).getCondition()
                         + " and " + getBlockIteral((ASTNode) ast.getChild(4)).getCondition());
                 return col;
+            } else if("EXPLODE".equalsIgnoreCase(fun)){
+                System.out.println("***EXPLODE***");
+                //col.setCondition(getBlockIteral((ASTNode)ast.getChild(1)).getCondition());
             }
             Set<Block> processChilds = processChilds(ast, 1);
             col.getColSet().addAll(bkToCols(col, processChilds));
@@ -424,7 +450,11 @@ public class Parser {
             Block key = getBlockIteral((ASTNode) ast.getChild(1));
             column.setCondition(column.getCondition() +"["+ key.getCondition() + "]");
             return column;
-        } else {
+        } /*else if (ast.getType() == HiveParser.TOK_LATERAL_VIEW){
+            String lateral = ast.getChild(0).getText();
+            Block column = getBlockIteral((ASTNode) ast.getChild(0));
+
+        }*/ else {
             return parseBlock(ast);
         }
     }
@@ -566,6 +596,11 @@ public class Parser {
         String tableArray = result[0];
         String _alia = result[1];
 
+        //这个地方可能会造成NPE  lateral view explode
+        if(queryMap.size()==0){
+            return new Block();
+        }
+
         for (String string : _alia.split(SPLIT_AND)) { //迭代循环的时候查询
             QueryTree qt = queryMap.get(string.toLowerCase());
             if (Check.notEmpty(column)) {
@@ -663,6 +698,8 @@ public class Parser {
                     joinOnStack.push(joinOn);
                     joinOn = ast;
                     break;
+//                case HiveParser.TOK_LATERAL_VIEW:
+//                    throw new UnSupportedException("no support TOK_LATERAL_VIEW using clause");
             }
         }
     }
@@ -956,17 +993,21 @@ public class Parser {
 
     public static void main(String[] args) throws Exception {
         Parser parser = new Parser();
+        String sql = "select ca,cb from tab1 union all select ca,cb from tab2";
+        String sql0 = "select ca,cb,count(1) from tab where id in ('102','103') and dt='$dt' group by ca,cb;";
         String sql1 = "insert overwrite table tmp.xxx partition(dt='20180101') select cola,colb from tmp.yyy where cola=10 or cola=20";
         String sql2 = "select name from (select name from zpc a full outer join def b on a.id = b.id) x";
         String sql3 = "use gdm;set hive.execution.engine=tez;insert into table dst select a as cc from tab1 union all select b as cc from tab2";
-        String sql4 = "insert into table dst select a as cc from tab1 union all select b as cc from tab2";
+        String sql4 = "insert into table dst select orz from (select a.cola,b.colb from tb1 a inner join tb2 b on a.id = b.id) x";
         String sql5 = "insert into table fin_tab select a.id,b.name,c.addr,d.pwd,f.tel from tb1 a join tb2 b join tb2 c join tb4 d join tmp.tb5 f";
         String sql6 = "create table test as select cola from yyy";
         String sql7 = "create table if not exists tmp.test like tmp.yyy";
         String sql8 = "select aa,bb from tab1 t1 inner join tab2 t2 ";
+        String sql9 = "select dt,real_abid,udid,eventid,parameters from dwd_bobo.dwd_bobo_fast lateral view explode(split(abid,',')) abid_array as real_abid where dt='$dt' ";
+        String sql10 = "select real_abid,parameters from dwd_bobo.dwd_bobo_fast lateral view EXPLODE(array_abid) abid_array as real_abid where dt='$dt' ";
         ParseDriver pd = new ParseDriver();
         List<SQLResult> list = new ArrayList<SQLResult>();
-        list = parser.parse(sql1);
+        list = parser.parse(sql9);
         for (SQLResult r :
                 list) {
             System.out.println(r.getInputTables());
