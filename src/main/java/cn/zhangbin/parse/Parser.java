@@ -96,6 +96,7 @@ public class Parser {
      * @return
      */
     private void parseCurrentNode(ASTNode ast){
+        //System.out.println(queryTreeList);
         if (ast.getToken() != null) {
             switch (ast.getToken().getType()) {
                 case HiveParser.TOK_CREATETABLE: //outputtable
@@ -164,11 +165,39 @@ public class Parser {
                     }
                     break;
                 case HiveParser.TOK_LATERAL_VIEW:
-                    System.out.println("== TOK_LATERAL_VIEW ==");
-
+//                    System.out.println("== TOK_LATERAL_VIEW ==");
+//                    System.out.println(queryTreeList);
+//                    if(ast.getChildCount()==2){
+//                        QueryTree qt = new QueryTree();
+//
+//                        ASTNode ct1 = (ASTNode) ast.getChild(1);
+//                        if(ct1.getType()==HiveParser.TOK_TABREF){
+//                            String parent = BaseSemanticAnalyzer.getUnescapedUnqualifiedTableName((ASTNode)ct1.getChild(0));
+//                            qt.setParent(parent);
+//                        }
+//
+//                        ASTNode ct = (ASTNode) ast.getChild(0).getChild(0);
+//                        for(int i =0 ; i< ct.getChildCount();i++){
+//                            System.out.println(BaseSemanticAnalyzer.getUnescapedName((ASTNode)ct.getChild(i)));
+//                            if("TOK_TABALIAS".equalsIgnoreCase(BaseSemanticAnalyzer.getUnescapedName((ASTNode)ct.getChild(i)))){
+//                                String tableAlias = BaseSemanticAnalyzer.unescapeIdentifier( ct.getChild(i).getChild(0).getText());
+//                                qt.setCurrent(tableAlias.toLowerCase());
+//                                qt.setColLineList(generateColLineList(cols, conditions));
+//
+//                                if (Check.notEmpty(qt.getParent())) {
+//                                    for (QueryTree pqt : queryTreeList) {
+//                                        pqt.getChildList().add(qt);
+//                                    }
+//                                }
+//
+//                            }
+//                        }
+//                        System.out.println(queryTreeList);
+//                    }
+//                    System.out.println("== End TOK_LATERAL_VIEW ==");
                     break;
                 case HiveParser.TOK_SUBQUERY:
-                    System.out.println("== TOK_SUBQUERY ==");
+                    //System.out.println("== TOK_SUBQUERY ==");
                     if (ast.getChildCount() == 2) {
                         String tableAlias = BaseSemanticAnalyzer.unescapeIdentifier(ast.getChild(1).getText());
                         String aliaReal = "";
@@ -199,7 +228,6 @@ public class Parser {
                                 queryMap.put(_qt.getCurrent(), _qt);
                             }
                         }
-                        System.out.println(qt.toString());
                     }
 
                     break;
@@ -217,7 +245,9 @@ public class Parser {
                      */
                     //解析需要插入的表
                     Tree tok_insert = ast.getParent().getParent();
+                    //System.out.println("tok_insert :" + tok_insert);
                     Tree child = tok_insert.getChild(0).getChild(0);
+                    //System.out.println(child.toString());
                     String tName = BaseSemanticAnalyzer.getUnescapedName((ASTNode) child.getChild(0));
                     String destTable = TOK_TMP_FILE.equals(tName) ? TOK_TMP_FILE : fillDB(tName);
 
@@ -438,8 +468,13 @@ public class Parser {
                         + " and " + getBlockIteral((ASTNode) ast.getChild(4)).getCondition());
                 return col;
             } else if("EXPLODE".equalsIgnoreCase(fun)){
-                System.out.println("***EXPLODE***");
-                //col.setCondition(getBlockIteral((ASTNode)ast.getChild(1)).getCondition());
+//                System.out.println("***EXPLODE***");
+//                if(ast.getChildCount()==2){
+//                    col.setCondition("explode("+getBlockIteral((ASTNode) ast.getChild(1)).getCondition() +")");
+//                    Set<Block> processChilds = processChilds(ast, 1);
+//                    col.getColSet().addAll(bkToCols(col, processChilds));
+//                }
+//                return col;
             }
             Set<Block> processChilds = processChilds(ast, 1);
             col.getColSet().addAll(bkToCols(col, processChilds));
@@ -807,6 +842,7 @@ public class Parser {
             parseAST(ast);
             endParse(++i);
         }
+
         return resultList;
     }
 
@@ -850,6 +886,47 @@ public class Parser {
         putResultQueryMap(sqlIndex, TOK_EOF);
         //putDBMap();
         setColLineList();
+        mergeExplodeCol();
+    }
+
+    /**
+     *
+     * 合并 TOK_LATERAL_VIEW 行转列生成的多条记录
+     */
+    private void mergeExplodeCol(){
+        for (SQLResult result:
+                resultList ) {
+            List<ColLine> list = result.getColLineList();
+            Map<String,ColLine> map = new HashMap<String, ColLine>();
+            for (ColLine cl :
+                    list) {
+                String toNameParse= cl.getToNameParse();
+                if(map.containsKey(toNameParse)){
+                    ColLine hasCl = map.get(toNameParse);
+                    if(hasCl.getColCondition().startsWith("explode")){
+                        cl.setColCondition(hasCl.getColCondition() + cl.getColCondition());
+                    }else {
+                        cl.setColCondition(cl.getColCondition() + hasCl.getColCondition());
+                    }
+
+                    if(cl.getFromNameSet().size()==0){
+                        cl.setFromNameSet(hasCl.getFromNameSet());
+                    }if (cl.getToTable().endsWith("TOK_FUNCTION") || cl.getToTable().endsWith("TOK_FUNCTION".toLowerCase())){
+                        cl.setToTable(hasCl.getToTable());
+                    }
+
+                    map.put(toNameParse,cl);
+                }else {
+                    map.put(toNameParse,cl);
+                }
+            }
+            list.clear();
+            for (Map.Entry<String, ColLine> entry : map.entrySet()) {
+                ColLine value = entry.getValue();
+                list.add(value);
+            }
+            result.setColLineList(list);
+        }
     }
 
     /***
@@ -866,7 +943,7 @@ public class Parser {
                         list = new ArrayList<ColLine>();
                         map.put(colLine.getToTable(), list);
                     }
-                    list.add(colLine);
+                    list.add(colLine);;
                 }
             }
         }
@@ -925,7 +1002,7 @@ public class Parser {
         for (String tables : tableArr) {
             String[] split = tables.split("\\" + SPLIT_DOT);
             if (split.length > 2) {
-                System.out.println(tables);
+                //System.out.println(tables);
                 throw new SQLParseException("parse table:" + nowTable);
             }
             String db = split.length == 2 ? split[0] : nowQueryDB ;
@@ -1003,11 +1080,13 @@ public class Parser {
         String sql6 = "create table test as select cola from yyy";
         String sql7 = "create table if not exists tmp.test like tmp.yyy";
         String sql8 = "select aa,bb from tab1 t1 inner join tab2 t2 ";
-        String sql9 = "select dt,real_abid,udid,eventid,parameters from dwd_bobo.dwd_bobo_fast lateral view explode(split(abid,',')) abid_array as real_abid where dt='$dt' ";
+        String sql9 = "insert into table tmp.test select dt,real_abid,udid,eventid,parameters from dwd_bobo.dwd_bobo_fast lateral view explode(split(abid,',')) abid_array as real_abid where dt='$dt' ";
+        String sql11 = "insert into table tmp.test select real_abid from dwd_bobo.dwd_bobo_fast lateral view explode(split(abid,',')) abid_array as real_abid where dt='$dt' ";
         String sql10 = "select real_abid,parameters from dwd_bobo.dwd_bobo_fast lateral view EXPLODE(array_abid) abid_array as real_abid where dt='$dt' ";
+        String sql12 = "select split(',',str) as arr from tmp.test";
         ParseDriver pd = new ParseDriver();
         List<SQLResult> list = new ArrayList<SQLResult>();
-        list = parser.parse(sql9);
+        list = parser.parse(sql1);
         for (SQLResult r :
                 list) {
             System.out.println(r.getInputTables());
